@@ -1,0 +1,63 @@
+name: Deploy
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build project
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js 12.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+      - run: npm install
+      - run: npm run build
+      - name: Upload build result
+        uses: actions/upload-artifact@v1
+        with:
+          name: build-result
+          path: dist
+
+  deploy:
+    name: Deploy to Amazon S3
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get artifact build
+        uses: actions/download-artifact@v1
+        with:
+          name: build-result
+      - run: echo ${{ secrets.AWS_S3_BUCKET }}
+      - name: S3 Sync
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        with:
+          args: --acl public-read --cache-control max-age=2592000,public --follow-symlinks --delete --exclude "*.html"
+        env:
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build-result"
+      - name: S3 Sync HTML
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        with:
+          args: --acl public-read --cache-control no-cache --follow-symlinks --metadata-directive REPLACE --exclude "*" --include "*.html"
+        env:
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build-result"
+      - name: Invalidate Cloudfront
+        uses: chetan/invalidate-cloudfront-action@v1.2
+        env:
+          DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+          PATHS: "/*"
+          AWS_REGION: "eu-west-1"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
